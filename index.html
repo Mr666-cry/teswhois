@@ -1,0 +1,205 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoDaddy Checker (Mobile Mode)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #ffffff;
+            color: #000000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .loader {
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #000000;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .json-key { color: #000000; font-weight: bold; }
+        .json-string { color: #333333; }
+        .json-number { color: #000000; font-weight: bold; }
+        .json-boolean { color: #555555; text-transform: uppercase; font-size: 0.9em; }
+        .json-null { color: #888888; font-style: italic; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-black selection:text-white">
+
+    <header class="border-b-4 border-black py-4 px-6 flex justify-between items-center">
+        <h1 class="text-xl sm:text-2xl font-black tracking-tighter uppercase">GoDaddy<span class="font-light">Mobile</span></h1>
+        <span class="text-[10px] sm:text-xs font-mono border-2 border-black px-2 py-1 uppercase font-bold">Auto-Proxy Mode</span>
+    </header>
+
+    <main class="flex-grow flex flex-col items-center p-4 sm:p-8 w-full max-w-4xl mx-auto mt-2 sm:mt-6">
+        
+        <div class="w-full">
+            <h2 class="text-2xl sm:text-4xl font-black mb-2 text-center uppercase tracking-tight">Cek Ketersediaan</h2>
+            <p class="text-gray-600 mb-6 text-center text-xs sm:text-base font-mono">Bypass CORS otomatis untuk pengguna HP</p>
+
+            <form id="apiForm" class="flex flex-col gap-0 border-4 border-black mb-6 w-full max-w-xl mx-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+                <input 
+                    type="text" 
+                    id="domainInput" 
+                    placeholder="Contoh: my-idea.com" 
+                    required
+                    class="w-full p-4 text-base sm:text-lg font-mono focus:outline-none focus:bg-gray-50 transition-all rounded-none placeholder-gray-400"
+                >
+                <button 
+                    type="submit" 
+                    class="w-full bg-black text-white px-8 py-4 text-base sm:text-lg font-bold hover:bg-gray-800 transition-colors rounded-none whitespace-nowrap uppercase tracking-wider border-t-4 border-black"
+                >
+                    Check Domain
+                </button>
+            </form>
+
+            <!-- Loading & Proxy Status -->
+            <div id="loadingArea" class="hidden flex flex-col items-center justify-center py-6 border-4 border-black border-dashed mb-6 max-w-xl mx-auto bg-gray-50">
+                <div class="loader mb-3"></div>
+                <p id="proxyStatus" class="font-mono text-xs font-bold uppercase tracking-widest text-center px-4">Mencari rute proxy...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorArea" class="hidden border-4 border-black bg-red-50 p-4 mb-6 font-mono text-sm text-left shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-red-600 font-bold max-w-xl mx-auto"></div>
+
+            <!-- Result Box -->
+            <div id="resultContainer" class="hidden w-full transition-all duration-300">
+                <div class="flex justify-between items-end border-b-4 border-black pb-2 mb-4">
+                    <h3 class="font-black uppercase tracking-widest text-sm sm:text-lg">JSON Result</h3>
+                    <button id="copyBtn" class="text-[10px] sm:text-xs font-bold border-2 border-black px-3 py-1 hover:bg-black hover:text-white transition-colors uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-y-[2px] active:translate-x-[2px]">Salin</button>
+                </div>
+                <pre id="resultText" class="border-4 border-black p-4 bg-[#fafafa] overflow-x-auto text-[10px] sm:text-sm font-mono whitespace-pre-wrap leading-relaxed shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"></pre>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="border-t-4 border-black py-4 text-center mt-auto bg-black text-white">
+        <p class="font-mono text-[10px] sm:text-xs font-bold uppercase">&copy; 2026 Mobile API Tester.</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const form = document.getElementById('apiForm');
+            const domainInput = document.getElementById('domainInput');
+            const loadingArea = document.getElementById('loadingArea');
+            const proxyStatus = document.getElementById('proxyStatus');
+            const errorArea = document.getElementById('errorArea');
+            const resultContainer = document.getElementById('resultContainer');
+            const resultText = document.getElementById('resultText');
+            const copyBtn = document.getElementById('copyBtn');
+
+            // Token API Anda
+            const GODADDY_PAT = "gd_pat_ZwzDMuo5PGSEV35NZhzTUCx8TZPsDShCWmVxK41R8r7_61fb9b8f"; 
+
+            // Daftar Proxy Publik untuk diuji satu per satu
+            const proxies = [
+                "https://thingproxy.freeboard.io/fetch/",
+                "https://corsproxy.org/?",
+                "https://corsproxy.io/?"
+            ];
+
+            function syntaxHighlight(json) {
+                if (typeof json != 'string') { json = JSON.stringify(json, undefined, 2); }
+                json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                    var cls = 'json-number';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) { cls = 'json-key'; } else { cls = 'json-string'; }
+                    } else if (/true|false/.test(match)) { cls = 'json-boolean'; } 
+                    else if (/null/.test(match)) { cls = 'json-null'; }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                });
+            }
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                let domain = domainInput.value.trim().toLowerCase();
+                domain = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+                if (!domain) return;
+
+                errorArea.classList.add('hidden');
+                resultContainer.classList.add('hidden');
+                loadingArea.classList.remove('hidden');
+                resultText.innerHTML = '';
+                
+                const targetUrl = `https://api.godaddy.com/v3/domains/check-availability?domain=${domain}`;
+                let success = false;
+                let lastError = "";
+
+                // Looping mencoba setiap proxy
+                for (let i = 0; i < proxies.length; i++) {
+                    try {
+                        proxyStatus.textContent = `Mencoba Jalur ${i + 1}...`;
+                        
+                        let fetchUrl = proxies[i].includes('?') 
+                            ? proxies[i] + encodeURIComponent(targetUrl) 
+                            : proxies[i] + targetUrl;
+
+                        const response = await fetch(fetchUrl, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Bearer ${GODADDY_PAT}`,
+                                'Accept': 'application/json'
+                            }
+                        });
+
+                        const data = await response.json();
+
+                        // Jika berhasil (meskipun error dari GoDaddy misal 401, yang penting tembus proxy)
+                        if (data) {
+                            resultText.innerHTML = syntaxHighlight(data);
+                            resultContainer.classList.remove('hidden');
+                            success = true;
+                            break; // Keluar dari loop karena sudah sukses
+                        }
+
+                    } catch (error) {
+                        lastError = error.message;
+                        console.warn(`Jalur ${i + 1} gagal, mencoba jalur berikutnya...`);
+                        // Lanjut ke proxy berikutnya
+                    }
+                }
+
+                loadingArea.classList.add('hidden');
+
+                // Jika semua proxy gagal
+                if (!success) {
+                    errorArea.innerHTML = `
+                        ❌ <strong>SEMUA JALUR PROXY DIBLOKIR</strong><br><br>
+                        Sistem keamanan browser HP Anda terlalu ketat, atau proxy sedang down.<br><br>
+                        <em>Log Terakhir: ${lastError}</em>
+                    `;
+                    errorArea.classList.remove('hidden');
+                }
+            });
+
+            copyBtn.addEventListener('click', () => {
+                const textToCopy = resultText.innerText;
+                if (!textToCopy) return;
+
+                const textarea = document.createElement('textarea');
+                textarea.value = textToCopy;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    const originalText = copyBtn.textContent;
+                    copyBtn.textContent = 'COPIED!';
+                    copyBtn.classList.add('bg-black', 'text-white');
+                    setTimeout(() => {
+                        copyBtn.textContent = originalText;
+                        copyBtn.classList.remove('bg-black', 'text-white');
+                    }, 2000);
+                } catch (err) {}
+                document.body.removeChild(textarea);
+            });
+        });
+    </script>
+</body>
+</html>
